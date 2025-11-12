@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Filip's to-do list</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="glass">
+      <header>
+        <h1>To-do</h1>
+        <span class="badge" id="badge">0 left</span>
+      </header>
+
+      <div class="row">
+        <div class="input" role="group" aria-label="Add task">
+          <input id="newTask" placeholder="Add a task and press Enter…" autocomplete="off" />
+          <button id="addBtn" class="btn primary" type="button">Add</button>
+        </div>
+
+        <div class="filters" role="tablist" aria-label="Filters">
+          <button class="btn ghost" data-filter="all" aria-pressed="true"  type="button">All</button>
+          <button class="btn ghost" data-filter="active" aria-pressed="false" type="button">Active</button>
+          <button class="btn ghost" data-filter="done" aria-pressed="false" type="button">Done</button>
+        </div>
+      </div>
+
+      <ul id="list"></ul>
+      <div class="empty" id="empty">No tasks… yet ✨</div>
+
+      <section id="archive" class="archive" hidden>
+        <div class="archive-bar">
+          <h2>Archived</h2>
+          <span class="badge" id="archiveCount">0</span>
+          <div class="spacer"></div>
+          <button id="emptyArchive" class="btn danger" type="button">Empty Archive</button>
+        </div>
+        <ul id="archiveList"></ul>
+      </section>
+
+      <footer>
+        <span class="hint">Tip: double-click a task to edit • Esc to cancel</span>
+        <div class="actions">
+          <button id="toggleArchive" class="btn ghost" type="button" aria-pressed="false">Archive</button>
+          <button id="clearDone" class="btn danger" type="button">Move Completed to Archive</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
