@@ -4,12 +4,9 @@
 const API_BASE = 'https://todo-backend-393a.onrender.com';
 
 // simple per-browser ID; if you want same list on multiple devices,
-// copy this value manually between them later
-let USER_ID = localStorage.getItem('todo_user_id');
-if (!USER_ID) {
-  USER_ID = crypto.randomUUID();
-  localStorage.setItem('todo_user_id', USER_ID);
-}
+// Use one shared ID for all your devices
+const USER_ID = 'filip-main-todo';
+
 
 function apiHeaders() {
   return {
