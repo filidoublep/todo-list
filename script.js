@@ -3,10 +3,11 @@
 // =============================
 const API_BASE = 'https://todo-backend-393a.onrender.com';
 
-// simple per-browser ID; if you want same list on multiple devices,
-// Use one shared ID for all your devices
+// Shared user ID so all your devices see the same list
 const USER_ID = 'filip-main-todo';
 
+// Password to unlock UI (⚠ visible in source!)
+const APP_PASSWORD = 'my-secret-todo-password'; // <-- change this to something you remember
 
 function apiHeaders() {
   return {
@@ -35,9 +36,9 @@ const confirmDanger = (msg) => window.confirm(msg);
 // =============================
 //  State
 // =============================
-let state = [];           // active tasks -> from backend
+let state = [];              // active tasks -> from backend
 let archive = loadArchive(); // archived tasks -> local
-let filter = 'all';       // 'all' | 'active' | 'done'
+let filter = 'all';          // 'all' | 'active' | 'done'
 let archiveVisible = false;
 
 // =============================
@@ -56,6 +57,12 @@ const archiveListEl  = document.getElementById('archiveList');
 const archiveCountEl = document.getElementById('archiveCount');
 const toggleArchive  = document.getElementById('toggleArchive');
 const emptyArchiveBtn= document.getElementById('emptyArchive');
+
+// auth elements
+const authOverlay    = document.getElementById('auth');
+const authPassword   = document.getElementById('authPassword');
+const authSubmit     = document.getElementById('authSubmit');
+const authError      = document.getElementById('authError');
 
 // =============================
 //  API helpers
@@ -346,11 +353,9 @@ async function restoreFromArchive(id) {
   if (idx === -1) return;
   const t = archive[idx];
 
-  // remove from archive locally
   archive.splice(idx, 1);
   saveArchive();
 
-  // create a new task on backend with same title
   try {
     const created = await apiAddTask(t.title);
     state.unshift(created);
@@ -364,6 +369,26 @@ function deleteForever(id) {
   archive = archive.filter((t) => t.id !== id);
   saveArchive();
   if (archiveVisible) renderArchive();
+}
+
+// =============================
+//  Auth: password gate
+// =============================
+function unlockApp() {
+  document.body.classList.add('authed');
+  localStorage.setItem('todo_authed', '1');
+  fetchTasks();
+}
+
+function checkPassword() {
+  const value = authPassword.value;
+  if (value === APP_PASSWORD) {
+    authError.textContent = '';
+    unlockApp();
+  } else {
+    authError.textContent = 'Wrong password.';
+    authPassword.select();
+  }
 }
 
 // =============================
@@ -405,7 +430,20 @@ if (emptyArchiveBtn) {
   });
 }
 
+// auth events
+authSubmit.addEventListener('click', checkPassword);
+authPassword.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') checkPassword();
+});
+
 // =============================
 //  Boot
 // =============================
-fetchTasks();
+const alreadyAuthed = localStorage.getItem('todo_authed') === '1';
+
+if (alreadyAuthed) {
+  document.body.classList.add('authed');
+  fetchTasks();
+} else {
+  document.body.classList.remove('authed');
+}

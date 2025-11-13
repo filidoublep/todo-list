@@ -288,3 +288,78 @@ footer {
   background: #1e3a8a;
   color: #fff;
 }
+
+/* ===== Password gate overlay ===== */
+.auth {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+  background: radial-gradient(circle at top, #020617dd, #020617f2 60%, #020617ff);
+}
+
+.auth-box {
+  max-width: 360px;
+  width: 100%;
+  padding: 24px 22px 20px;
+  border-radius: 16px;
+  background: #020617cc;
+  border: 1px solid #1f2937;
+  box-shadow: 0 18px 45px rgba(0,0,0,.6);
+  display: grid;
+  gap: 10px;
+}
+
+.auth-box h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.auth-sub {
+  margin: 0 0 6px;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+#authPassword {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #1f2937;
+  background: #020617;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+#authPassword::placeholder {
+  color: #6b7280;
+}
+
+#authPassword:focus {
+  border-color: var(--accent);
+}
+
+.auth-error {
+  margin: 4px 0 0;
+  min-height: 16px;
+  font-size: 12px;
+  color: #fecaca;
+}
+
+/* When authed, hide overlay and show app */
+body.authed .auth {
+  display: none;
+}
+
+/* Start with app hidden to avoid flash before auth */
+.wrap {
+  display: none;
+}
+body.authed .wrap {
+  display: block;
+}
