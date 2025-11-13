@@ -1,7 +1,10 @@
-// ===== API config =====
-const API_BASE = 'http://localhost:8787'; // later: your Render URL
+// =============================
+//  Config: API + user identity
+// =============================
+const API_BASE = 'https://todo-backend-393a.onrender.com';
 
-// stable per-browser user id; share this across your devices if you want same list
+// simple per-browser ID; if you want same list on multiple devices,
+// copy this value manually between them later
 let USER_ID = localStorage.getItem('todo_user_id');
 if (!USER_ID) {
   USER_ID = crypto.randomUUID();
@@ -11,39 +14,44 @@ if (!USER_ID) {
 function apiHeaders() {
   return {
     'Content-Type': 'application/json',
-    'X-User-Id': USER_ID
+    'X-User-Id': USER_ID,
   };
 }
 
+// archive stays in localStorage for now
+const KEY_ARCHIVE = 'universal_todo.archive.v1';
+
+function loadArchive() {
+  try {
+    return JSON.parse(localStorage.getItem(KEY_ARCHIVE) || '[]');
+  } catch {
+    return [];
+  }
+}
+function saveArchive() {
+  localStorage.setItem(KEY_ARCHIVE, JSON.stringify(archive));
+}
+
+// confirmation helper for dangerous actions
 const confirmDanger = (msg) => window.confirm(msg);
 
-// Each task: { id, title, done, createdAt }
-// Each archived task: same + archivedAt
+// =============================
+//  State
+// =============================
+let state = [];           // active tasks -> from backend
+let archive = loadArchive(); // archived tasks -> local
+let filter = 'all';       // 'all' | 'active' | 'done'
+let archiveVisible = false;
 
-let state = [];   // live tasks come from API
-let archive = []; // archive stays local for now
-let filter = 'all'; // 'all' | 'active' | 'done'
-
-async function fetchTasks() {
-  const res = await fetch(`${API_BASE}/api/tasks`, { headers: apiHeaders() });
-  state = await res.json();
-  render();
-}
-
-// ===== Utilities =====
-function fmtDate(ts) {
-  const d = new Date(ts);
-  return d.toLocaleString(); // simple and local—good enough for now
-}
-
-// ===== DOM =====
+// =============================
+//  DOM references
+// =============================
 const listEl         = document.getElementById('list');
 const emptyEl        = document.getElementById('empty');
 const newTaskEl      = document.getElementById('newTask');
 const addBtn         = document.getElementById('addBtn');
 const badgeEl        = document.getElementById('badge');
 const clearDoneBtn   = document.getElementById('clearDone');
-clearDoneBtn.classList.add('archive');
 const filterBtns     = [...document.querySelectorAll('.filters .btn')];
 
 const archiveSection = document.getElementById('archive');
@@ -52,36 +60,86 @@ const archiveCountEl = document.getElementById('archiveCount');
 const toggleArchive  = document.getElementById('toggleArchive');
 const emptyArchiveBtn= document.getElementById('emptyArchive');
 
-let archiveVisible = false;
+// =============================
+//  API helpers
+// =============================
+async function fetchTasks() {
+  try {
+    const res = await fetch(`${API_BASE}/api/tasks`, {
+      headers: apiHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch tasks');
+    state = await res.json();
+    render();
+  } catch (err) {
+    console.error(err);
+  }
+}
 
-// ===== Render active list =====
+async function apiAddTask(title) {
+  const res = await fetch(`${API_BASE}/api/tasks`, {
+    method: 'POST',
+    headers: apiHeaders(),
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error('Failed to add task');
+  return res.json();
+}
+
+async function apiUpdateTask(id, patch) {
+  const res = await fetch(`${API_BASE}/api/tasks/${id}`, {
+    method: 'PATCH',
+    headers: apiHeaders(),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error('Failed to update task');
+  return res.json();
+}
+
+async function apiDeleteTask(id) {
+  const res = await fetch(`${API_BASE}/api/tasks/${id}`, {
+    method: 'DELETE',
+    headers: apiHeaders(),
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error('Failed to delete task');
+  }
+}
+
+async function apiClearDone() {
+  const res = await fetch(`${API_BASE}/api/tasks?done=true`, {
+    method: 'DELETE',
+    headers: apiHeaders(),
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error('Failed to clear completed tasks');
+  }
+}
+
+// =============================
+//  Rendering: active list
+// =============================
 function render() {
-  // Filter
-  const items = state.filter(t => {
+  const items = state.filter((t) => {
     if (filter === 'active') return !t.done;
-    if (filter === 'done')   return  t.done;
+    if (filter === 'done') return t.done;
     return true;
   });
 
-  // Empty state
   emptyEl.style.display = items.length ? 'none' : 'block';
-
-  // Build list
   listEl.innerHTML = '';
+
   for (const item of items) {
     listEl.appendChild(renderItem(item));
   }
 
-  // Badge (left count)
-  const left = state.filter(t => !t.done).length;
+  const left = state.filter((t) => !t.done).length;
   badgeEl.textContent = `${left} left`;
 
-  // Filter button ARIA
   for (const b of filterBtns) {
     b.setAttribute('aria-pressed', String(b.dataset.filter === filter));
   }
 
-  // If archive open, refresh it too
   if (archiveVisible) renderArchive();
 }
 
@@ -104,13 +162,14 @@ function renderItem(item) {
 
   const actions = document.createElement('div');
   actions.className = 'actions';
+
   const del = document.createElement('button');
   del.className = 'btn danger';
   del.type = 'button';
   del.textContent = 'Delete';
-  del.addEventListener('click', () => {
+  del.addEventListener('click', async () => {
     if (!confirmDanger('Delete this task permanently?')) return;
-    remove(item.id);
+    await remove(item.id);
   });
 
   actions.appendChild(del);
@@ -120,8 +179,16 @@ function renderItem(item) {
   return li;
 }
 
-// ===== Render archive list =====
+// =============================
+//  Rendering: archive
+// =============================
+function fmtDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleString();
+}
+
 function renderArchive() {
+  if (!archiveSection) return;
   archiveCountEl.textContent = String(archive.length);
   archiveListEl.innerHTML = '';
 
@@ -154,14 +221,17 @@ function renderArchive() {
     restoreBtn.className = 'btn restore';
     restoreBtn.type = 'button';
     restoreBtn.textContent = 'Restore';
-    restoreBtn.addEventListener('click', () => restoreFromArchive(t.id));
+    restoreBtn.addEventListener('click', async () => {
+      if (!confirmDanger('Restore this task back to active list?')) return;
+      await restoreFromArchive(t.id);
+    });
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn danger';
     deleteBtn.type = 'button';
     deleteBtn.textContent = 'Delete Forever';
     deleteBtn.addEventListener('click', () => {
-      if (!confirmDanger('Permanently delete this archived task? This cannot be undone.')) return;
+      if (!confirmDanger('Permanently delete this archived task?')) return;
       deleteForever(t.id);
     });
 
@@ -174,65 +244,66 @@ function renderArchive() {
   }
 }
 
-// ===== Mutations (active list) =====
+// =============================
+//  Mutations: active list
+// =============================
 async function add(title) {
   title = (title || '').trim();
   if (!title) return;
-  const res = await fetch(`${API_BASE}/api/tasks`, {
-    method: 'POST',
-    headers: apiHeaders(),
-    body: JSON.stringify({ title })
-  });
-  const task = await res.json();
-  state.unshift(task);
-  newTaskEl.value = '';
-  render();
+  try {
+    const task = await apiAddTask(title);
+    state.unshift(task);
+    newTaskEl.value = '';
+    render();
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 async function toggle(id) {
-  const task = state.find(t => t.id === id);
+  const task = state.find((t) => t.id === id);
   if (!task) return;
-  const res = await fetch(`${API_BASE}/api/tasks/${id}`, {
-    method: 'PATCH',
-    headers: apiHeaders(),
-    body: JSON.stringify({ done: !task.done })
-  });
-  const updated = await res.json();
-  state = state.map(t => t.id === id ? updated : t);
-  render();
+  try {
+    const updated = await apiUpdateTask(id, { done: !task.done });
+    state = state.map((t) => (t.id === id ? updated : t));
+    render();
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 async function remove(id) {
-  await fetch(`${API_BASE}/api/tasks/${id}`, {
-    method: 'DELETE',
-    headers: apiHeaders()
-  });
-  state = state.filter(t => t.id !== id);
-  render();
+  try {
+    await apiDeleteTask(id);
+    state = state.filter((t) => t.id !== id);
+    render();
+  } catch (err) {
+    console.error(err);
+  }
 }
 
-// Move all completed to archive
 async function clearDone() {
-  const done = state.filter(t => t.done);
-  if (done.length === 0) return;
+  const doneTasks = state.filter((t) => t.done);
+  if (!doneTasks.length) return;
 
   const now = Date.now();
+  // move to archive (local)
   archive = [
-    ...done.map(t => ({ ...t, archivedAt: now })),
-    ...archive
+    ...doneTasks.map((t) => ({ ...t, archivedAt: now })),
+    ...archive,
   ];
+  saveArchive();
 
-  await fetch(`${API_BASE}/api/tasks?done=true`, {
-    method: 'DELETE',
-    headers: apiHeaders()
-  });
-
-  state = state.filter(t => !t.done);
-  render();
+  try {
+    await apiClearDone();
+    state = state.filter((t) => !t.done);
+    render();
+  } catch (err) {
+    console.error(err);
+  }
 }
 
-// Inline edit
-function startEdit(id, titleEl) {
+async function startEdit(id, titleEl) {
   const original = titleEl.textContent;
   const input = document.createElement('input');
   input.value = original;
@@ -250,14 +321,18 @@ function startEdit(id, titleEl) {
   const commit = async () => {
     const val = input.value.trim();
     const newTitle = val || original;
-    await fetch(`${API_BASE}/api/tasks/${id}`, {
-      method: 'PATCH',
-      headers: apiHeaders(),
-      body: JSON.stringify({ title: newTitle })
-    });
-    await fetchTasks();
+    try {
+      const updated = await apiUpdateTask(id, { title: newTitle });
+      state = state.map((t) => (t.id === id ? updated : t));
+      render();
+    } catch (err) {
+      console.error(err);
+      render(); // fallback render
+    }
   };
-  const cancel = () => { render(); };
+  const cancel = () => {
+    render();
+  };
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') commit();
@@ -266,45 +341,45 @@ function startEdit(id, titleEl) {
   input.addEventListener('blur', commit);
 }
 
-// ===== Archive actions =====
+// =============================
+//  Mutations: archive
+// =============================
 async function restoreFromArchive(id) {
-  const idx = archive.findIndex(t => t.id === id);
+  const idx = archive.findIndex((t) => t.id === id);
   if (idx === -1) return;
   const t = archive[idx];
+
+  // remove from archive locally
   archive.splice(idx, 1);
-  renderArchive();
+  saveArchive();
 
-  const res = await fetch(`${API_BASE}/api/tasks`, {
-    method: 'POST',
-    headers: apiHeaders(),
-    body: JSON.stringify({ title: t.title })
-  });
-  const created = await res.json();
-
-  if (t.done) {
-    await fetch(`${API_BASE}/api/tasks/${created.id}`, {
-      method: 'PATCH',
-      headers: apiHeaders(),
-      body: JSON.stringify({ done: t.done })
-    });
+  // create a new task on backend with same title
+  try {
+    const created = await apiAddTask(t.title);
+    state.unshift(created);
+    render();
+  } catch (err) {
+    console.error(err);
   }
-
-  await fetchTasks();
 }
 
 function deleteForever(id) {
-  archive = archive.filter(t => t.id !== id);
-  renderArchive();
+  archive = archive.filter((t) => t.id !== id);
+  saveArchive();
+  if (archiveVisible) renderArchive();
 }
 
-// ===== Events =====
+// =============================
+//  Event wiring
+// =============================
 addBtn.addEventListener('click', () => add(newTaskEl.value));
 newTaskEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') add(newTaskEl.value);
 });
-clearDoneBtn.addEventListener('click', () => {
-  if (!confirmDanger('Move all completed tasks to Archive?')) return;
-  clearDone();
+
+clearDoneBtn.addEventListener('click', async () => {
+  if (!confirmDanger('Move all completed tasks to Archive and clear them from active list?')) return;
+  await clearDone();
 });
 
 for (const b of filterBtns) {
@@ -314,19 +389,26 @@ for (const b of filterBtns) {
   });
 }
 
-toggleArchive.addEventListener('click', () => {
-  archiveVisible = !archiveVisible;
-  archiveSection.hidden = !archiveVisible;
-  toggleArchive.setAttribute('aria-pressed', String(archiveVisible));
-  if (archiveVisible) renderArchive();
-});
+if (toggleArchive && archiveSection) {
+  toggleArchive.addEventListener('click', () => {
+    archiveVisible = !archiveVisible;
+    archiveSection.hidden = !archiveVisible;
+    toggleArchive.setAttribute('aria-pressed', String(archiveVisible));
+    if (archiveVisible) renderArchive();
+  });
+}
 
-emptyArchiveBtn.addEventListener('click', () => {
-  if (!archive.length) return;
-  if (!confirmDanger('Delete ALL archived tasks permanently?')) return;
-  archive = [];
-  renderArchive();
-});
+if (emptyArchiveBtn) {
+  emptyArchiveBtn.addEventListener('click', () => {
+    if (!archive.length) return;
+    if (!confirmDanger('Delete ALL archived tasks permanently?')) return;
+    archive = [];
+    saveArchive();
+    renderArchive();
+  });
+}
 
-// ===== Initial load =====
+// =============================
+//  Boot
+// =============================
 fetchTasks();
