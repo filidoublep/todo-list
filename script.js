@@ -7,7 +7,7 @@ const API_BASE = 'https://todo-backend-393a.onrender.com';
 const USER_ID = 'filip-main-todo';
 
 // Password to unlock UI (⚠ visible in source!)
-const APP_PASSWORD = 'my-secret-todo-password'; // <-- change this to something you remember
+const APP_PASSWORD = 'Jablko123'; // <-- change this to something you remember
 
 function apiHeaders() {
   return {
