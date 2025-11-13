@@ -363,3 +363,15 @@ body.authed .auth {
 body.authed .wrap {
   display: block;
 }
+/* =========================
+   Small button variant
+   ========================= */
+.small-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.small-btn:hover {
+  opacity: 1;
+}

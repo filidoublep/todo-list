@@ -51,6 +51,7 @@ const addBtn         = document.getElementById('addBtn');
 const badgeEl        = document.getElementById('badge');
 const clearDoneBtn   = document.getElementById('clearDone');
 const filterBtns     = [...document.querySelectorAll('.filters .btn')];
+const wakeBtn        = document.getElementById('wakeBtn');
 
 const archiveSection = document.getElementById('archive');
 const archiveListEl  = document.getElementById('archiveList');
@@ -63,6 +64,17 @@ const authOverlay    = document.getElementById('auth');
 const authPassword   = document.getElementById('authPassword');
 const authSubmit     = document.getElementById('authSubmit');
 const authError      = document.getElementById('authError');
+const statusEl       = document.getElementById('status');
+
+function setStatus(message, variant = 'info') {
+  if (!statusEl) {
+    if (variant === 'error') console.error(message);
+    else console.log(message);
+    return;
+  }
+  statusEl.textContent = message;
+  statusEl.classList.toggle('status-error', variant === 'error');
+}
 
 // =============================
 //  API helpers
@@ -117,6 +129,21 @@ async function apiClearDone() {
   });
   if (!res.ok && res.status !== 204) {
     throw new Error('Failed to clear completed tasks');
+  }
+}
+
+async function wakeBackend() {
+  try {
+    setStatus('Waking backend…');
+    const res = await fetch(`${API_BASE}/api/health`, {
+      headers: { 'X-User-Id': USER_ID },
+    });
+    if (!res.ok) throw new Error('Backend wake failed');
+    setStatus('Backend is awake ✔');
+    fetchTasks();
+  } catch (err) {
+    console.error(err);
+    setStatus('Backend still sleeping or unreachable', 'error');
   }
 }
 
@@ -430,6 +457,10 @@ if (emptyArchiveBtn) {
   });
 }
 
+if (wakeBtn) {
+  wakeBtn.addEventListener('click', wakeBackend);
+}
+
 // auth events
 authSubmit.addEventListener('click', checkPassword);
 authPassword.addEventListener('keydown', (e) => {
@@ -447,3 +478,5 @@ if (alreadyAuthed) {
 } else {
   document.body.classList.remove('authed');
 }
+
+wakeBackend();
