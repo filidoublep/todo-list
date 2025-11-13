@@ -16,20 +16,6 @@ function apiHeaders() {
   };
 }
 
-// archive stays in localStorage for now
-const KEY_ARCHIVE = 'universal_todo.archive.v1';
-
-function loadArchive() {
-  try {
-    return JSON.parse(localStorage.getItem(KEY_ARCHIVE) || '[]');
-  } catch {
-    return [];
-  }
-}
-function saveArchive() {
-  localStorage.setItem(KEY_ARCHIVE, JSON.stringify(archive));
-}
-
 // confirmation helper for dangerous actions
 const confirmDanger = (msg) => window.confirm(msg);
 
@@ -37,7 +23,7 @@ const confirmDanger = (msg) => window.confirm(msg);
 //  State
 // =============================
 let state = [];              // active tasks -> from backend
-let archive = loadArchive(); // archived tasks -> local
+let archive = [];            // archive -> from backend
 let filter = 'all';          // 'all' | 'active' | 'done'
 let archiveVisible = false;
 
@@ -132,6 +118,63 @@ async function apiClearDone() {
   }
 }
 
+async function fetchArchive() {
+  const res = await fetch(`${API_BASE}/api/archive`, {
+    headers: apiHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to fetch archive');
+  return res.json();
+}
+
+async function apiArchiveAdd(task) {
+  const res = await fetch(`${API_BASE}/api/archive`, {
+    method: 'POST',
+    headers: apiHeaders(),
+    body: JSON.stringify(task),
+  });
+  if (!res.ok) throw new Error('Failed to add to archive');
+  return res.json();
+}
+
+async function apiArchiveDelete(id) {
+  const res = await fetch(`${API_BASE}/api/archive/${id}`, {
+    method: 'DELETE',
+    headers: apiHeaders(),
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error('Failed to delete archive item');
+  }
+}
+
+async function apiArchiveClear() {
+  const res = await fetch(`${API_BASE}/api/archive`, {
+    method: 'DELETE',
+    headers: apiHeaders(),
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error('Failed to clear archive');
+  }
+}
+
+async function apiArchiveRestore(id) {
+  const res = await fetch(`${API_BASE}/api/archive/restore`, {
+    method: 'POST',
+    headers: apiHeaders(),
+    body: JSON.stringify({ id }),
+  });
+  if (!res.ok) throw new Error('Failed to restore archive item');
+  return res.json();
+}
+
+async function refreshArchive() {
+  try {
+    archive = await fetchArchive();
+    renderArchive();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 async function wakeBackend() {
   try {
     setStatus('Waking backend…');
@@ -141,6 +184,7 @@ async function wakeBackend() {
     if (!res.ok) throw new Error('Backend wake failed');
     setStatus('Backend is awake ✔');
     fetchTasks();
+    refreshArchive();
   } catch (err) {
     console.error(err);
     setStatus('Backend still sleeping or unreachable', 'error');
@@ -261,9 +305,9 @@ function renderArchive() {
     deleteBtn.className = 'btn danger';
     deleteBtn.type = 'button';
     deleteBtn.textContent = 'Delete Forever';
-    deleteBtn.addEventListener('click', () => {
+    deleteBtn.addEventListener('click', async () => {
       if (!confirmDanger('Permanently delete this archived task?')) return;
-      deleteForever(t.id);
+      await deleteForever(t.id);
     });
 
     actions.appendChild(restoreBtn);
@@ -317,18 +361,16 @@ async function clearDone() {
   const doneTasks = state.filter((t) => t.done);
   if (!doneTasks.length) return;
 
-  const now = Date.now();
-  // move to archive (local)
-  archive = [
-    ...doneTasks.map((t) => ({ ...t, archivedAt: now })),
-    ...archive,
-  ];
-  saveArchive();
-
   try {
+    await Promise.all(
+      doneTasks.map((t) =>
+        apiArchiveAdd({ id: t.id, title: t.title })
+      )
+    );
     await apiClearDone();
     state = state.filter((t) => !t.done);
     render();
+    await refreshArchive();
   } catch (err) {
     console.error(err);
   }
@@ -376,26 +418,24 @@ async function startEdit(id, titleEl) {
 //  Mutations: archive
 // =============================
 async function restoreFromArchive(id) {
-  const idx = archive.findIndex((t) => t.id === id);
-  if (idx === -1) return;
-  const t = archive[idx];
-
-  archive.splice(idx, 1);
-  saveArchive();
-
   try {
-    const created = await apiAddTask(t.title);
+    const item = await apiArchiveRestore(id);
+    const created = await apiAddTask(item.title);
     state.unshift(created);
     render();
+    await refreshArchive();
   } catch (err) {
     console.error(err);
   }
 }
 
-function deleteForever(id) {
-  archive = archive.filter((t) => t.id !== id);
-  saveArchive();
-  if (archiveVisible) renderArchive();
+async function deleteForever(id) {
+  try {
+    await apiArchiveDelete(id);
+    await refreshArchive();
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 // =============================
@@ -405,6 +445,7 @@ function unlockApp() {
   document.body.classList.add('authed');
   localStorage.setItem('todo_authed', '1');
   fetchTasks();
+  refreshArchive();
 }
 
 function checkPassword() {
@@ -443,17 +484,20 @@ if (toggleArchive && archiveSection) {
     archiveVisible = !archiveVisible;
     archiveSection.hidden = !archiveVisible;
     toggleArchive.setAttribute('aria-pressed', String(archiveVisible));
-    if (archiveVisible) renderArchive();
+    if (archiveVisible) refreshArchive();
   });
 }
 
 if (emptyArchiveBtn) {
-  emptyArchiveBtn.addEventListener('click', () => {
+  emptyArchiveBtn.addEventListener('click', async () => {
     if (!archive.length) return;
     if (!confirmDanger('Delete ALL archived tasks permanently?')) return;
-    archive = [];
-    saveArchive();
-    renderArchive();
+    try {
+      await apiArchiveClear();
+      await refreshArchive();
+    } catch (err) {
+      console.error(err);
+    }
   });
 }
 
@@ -475,6 +519,7 @@ const alreadyAuthed = localStorage.getItem('todo_authed') === '1';
 if (alreadyAuthed) {
   document.body.classList.add('authed');
   fetchTasks();
+  refreshArchive();
 } else {
   document.body.classList.remove('authed');
 }
